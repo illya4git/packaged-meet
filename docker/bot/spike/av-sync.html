@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  A/V sync test page for the bot image spike (Step 2).
+  Once per second the screen flashes white and a 1 kHz beep plays, both keyed
+  to the audio output clock. analyze-sync.sh measures the offset between them
+  in the recording.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>A/V sync test</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script>
+      const PERIOD = 1.0; // seconds between flashes
+      const FLASH = 0.1; // flash / beep length, seconds
+      const canvas = document.getElementById("c");
+      const g = canvas.getContext("2d");
+      const ctx = new AudioContext({ latencyHint: "interactive" });
+      const start = ctx.currentTime + 0.5;
+
+      // Schedule beeps ahead of time on the audio clock.
+      let scheduled = 0;
+      function scheduleBeeps() {
+        while (start + scheduled * PERIOD < ctx.currentTime + 5) {
+          const t = start + scheduled * PERIOD;
+          const osc = new OscillatorNode(ctx, { frequency: 1000 });
+          const gain = new GainNode(ctx, { gain: 0.5 });
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + FLASH);
+          scheduled++;
+        }
+      }
+
+      // The audio-clock time currently reaching the speakers.
+      function audibleTime() {
+        const ts = ctx.getOutputTimestamp();
+        return ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+      }
+
+      function frame() {
+        scheduleBeeps();
+        canvas.width = innerWidth;
+        canvas.height = innerHeight;
+        const t = audibleTime() - start;
+        const phase = ((t % PERIOD) + PERIOD) % PERIOD;
+        const flash = t >= 0 && phase < FLASH;
+        g.fillStyle = flash ? "#fff" : "#000";
+        g.fillRect(0, 0, canvas.width, canvas.height);
+        // Moving marker + counter, so the recording also shows smooth motion.
+        g.fillStyle = flash ? "#000" : "#0f0";
+        g.fillRect(((phase / PERIOD) * canvas.width) | 0, canvas.height - 40, 40, 40);
+        g.font = "32px monospace";
+        g.fillText(`t=${t.toFixed(2)} ctx=${ctx.state}`, 20, 50);
+        requestAnimationFrame(frame);
+      }
+      ctx.resume();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

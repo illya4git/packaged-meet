@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.idea
+.vscode
+.env
+.env.*
+docker/bot/spike/out

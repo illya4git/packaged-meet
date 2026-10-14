@@ -1,0 +1,7 @@
+# Minimal PulseAudio setup for a headless bot: everything Chromium plays goes to
+# a null sink, and ffmpeg records that sink's monitor source (bot_sink.monitor).
+.fail
+load-module module-native-protocol-unix
+load-module module-null-sink sink_name=bot_sink sink_properties=device.description=bot_sink rate=48000 channels=2
+set-default-sink bot_sink
+set-default-source bot_sink.monitor

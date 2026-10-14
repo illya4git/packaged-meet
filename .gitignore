@@ -9,3 +9,6 @@ coverage/
 
 .idea/
 .vscode/
+
+# Step 2 spike recordings
+docker/bot/spike/out/

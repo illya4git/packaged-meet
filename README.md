@@ -180,9 +180,11 @@ Authentication: per-attempt random token passed to the container as an env var, 
 
 ### 5.3 Bot container
 
-- Base: official Playwright image; add Xvfb, PulseAudio, ffmpeg. Run as non-root.
+- Base: official Playwright image (`v1.64.0-noble`, pinned); add Xvfb, PulseAudio, ffmpeg. Run as non-root (`pwuser`, uid 1001), so each attempt directory must be writable by uid 1001.
 - `entrypoint.sh`: start Xvfb on `:99`, start PulseAudio with a null sink as default output, `exec node dist/main.js`.
-- Launch flags: `--init`, `--shm-size=2g`, CPU and memory limits, no restart policy, no auto-remove, network `bots`, no added capabilities. Keep the Chromium sandbox enabled (no `--no-sandbox`).
+- Launch flags: `--init`, `--shm-size=2g`, CPU and memory limits, no restart policy, no auto-remove, network `bots`, `--cap-drop=ALL --cap-add=SYS_CHROOT`, `--security-opt no-new-privileges`, `--security-opt seccomp=docker/bot/seccomp.json`. Keep the Chromium sandbox enabled (no `--no-sandbox`).
+- Chromium sandbox requirements: the seccomp profile is Docker's default plus `clone`/`setns`/`unshare` (unprivileged user namespaces); `SYS_CHROOT` (a Docker default capability) is the only capability kept. Without either, Chromium aborts with "No usable sandbox" or a zygote failure.
+- A/V sync: the null-sink monitor delivers audio as soon as it is mixed, while Chromium delays video for its assumed speaker latency, so recorded audio runs early. `PULSE_LATENCY_MSEC=20` makes the offset constant; ffmpeg shifts audio by `AUDIO_DELAY_SECONDS` (0.067, measured on the spike's A/V sync page). Re-measure with `docker/bot/spike/run-spike.sh` after changing the base image, resolution or frame rate.
 - Fake media devices: `--use-fake-ui-for-media-stream`, `--use-fake-device-for-media-stream`, with silent audio and a static image as the bot's mic/camera.
 - Labels: `packaged-meet.attempt_id`, `packaged-meet.meeting_id`, `packaged-meet.platform`.
 
@@ -247,9 +249,9 @@ Each step ends with a verifiable **Done when** criterion. Do not start a step un
 
 ### Step 2 — Bot image spike (no TypeScript)
 
-- [ ] `docker/bot/Dockerfile` on the Playwright base image + Xvfb, PulseAudio, ffmpeg.
-- [ ] `entrypoint.sh` starting Xvfb and PulseAudio null sink.
-- [ ] Manually open a page with video + sound in Chromium inside the container and record it with an ffmpeg command run in a shell.
+- [x] `docker/bot/Dockerfile` on the Playwright base image + Xvfb, PulseAudio, ffmpeg.
+- [x] `entrypoint.sh` starting Xvfb and PulseAudio null sink.
+- [x] Manually open a page with video + sound in Chromium inside the container and record it with an ffmpeg command run in a shell.
 
 **Done when:** an MP4 with synced picture and audio is produced.
 
@@ -368,7 +370,7 @@ Read this section before making changes.
 **Security (do not relax)**
 
 - The controller never mounts `/var/run/docker.sock` directly; it uses `docker-proxy`.
-- Bot containers: non-root, no added capabilities, no privileged mode, Chromium sandbox enabled, network `bots` only, bind mount limited to their own attempt directory.
+- Bot containers: non-root, all capabilities dropped except `SYS_CHROOT`, `no-new-privileges`, the repo's seccomp profile, no privileged mode, Chromium sandbox enabled, network `bots` only, bind mount limited to their own attempt directory.
 - Never publish ports on `0.0.0.0`. Never commit secrets, profiles, or `.env` files.
 - Profiles are always encrypted at rest; only per-attempt decrypted copies exist, and they are deleted after the attempt.
 
@@ -391,6 +393,7 @@ npm run format                           # prettier --write (format:check in CI)
 npm run dev -w apps/controller           # controller with tsx watch
 npm run db:migrate -w packages/db        # apply Drizzle migrations
 docker build -f docker/bot/Dockerfile -t packaged-meet-bot:dev .
+docker/bot/spike/run-spike.sh            # record the A/V sync page in the bot image, report offset
 docker compose -f docker/compose.yaml up -d
 ```
 
@@ -404,4 +407,5 @@ Scripts referenced here are created during Steps 1, 4 and 5; keep this list in s
 - Meet and Teams may challenge logins; account health scoring and profile reuse mitigate this.
 - Capacity is roughly 1–2 vCPU and 2–4 GB RAM per concurrent bot; size `MAX_CONCURRENT_BOTS` from host resources.
 - A host failure stops all in-progress recordings; segments already written are kept.
+- A/V sync: with the fixed audio delay, most spike runs measure 0 to −5 ms, but roughly 1 in 8 runs is steadily ~−60 ms (audio early, about two frames at 30 fps). Cause not yet identified; revisit when the real capture wrapper lands (Step 3) and consider re-measuring the offset per bot start.
 - Open: transcription (optional, after Step 9), notification channel for alerts (Step 13).
